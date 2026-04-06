@@ -45,6 +45,7 @@ const EMPTY_OUTPUT: ListingFieldMap = {
   "取引態様": null,
   "取引様態": null,
   "備考": null,
+  "部屋の特徴・設備": null,
 };
 
 const normalizeSpace = (value: string | null | undefined) =>
@@ -66,6 +67,20 @@ const cleanupValue = (value: string | null | undefined) => {
     .replace(/地図を見る/g, "")
     .replace(/\s*\|\s*LIFULL HOME'S.*$/g, "")
     .replace(/^\s*[:：-]+/, "")
+    .trim();
+};
+
+const cleanupSuumoTitle = (value: string | null | undefined) => {
+  const normalized = cleanupValue(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized
+    .replace(/\s*-\s*.*?が提供する賃貸物件情報$/, "")
+    .replace(/^【SUUMO】/, "")
+    .replace(/（\d+）.*$/, "")
+    .replace(/／.*$/, "")
     .trim();
 };
 
@@ -111,18 +126,42 @@ const buildLabelMap = ($: CheerioAPI) => {
   const map = new Map<string, string>();
 
   $("tr").each((_, row) => {
-    const label = normalizeSpace($(row).find("th").first().text());
-    const value = normalizeSpace($(row).find("td").first().text());
-    if (label && value) {
-      mergeValue(map, label, value);
+    const ths = $(row).find("th");
+    const tds = $(row).find("td");
+
+    if (ths.length === 1 && tds.length === 1) {
+      mergeValue(map, $(ths[0]).text(), $(tds[0]).text());
+      return;
     }
+
+    ths.each((index, th) => {
+      const td = tds.get(index);
+      if (td) {
+        mergeValue(map, $(th).text(), $(td).text());
+      }
+    });
   });
 
   $("dt").each((_, dt) => {
-    const label = normalizeSpace($(dt).text());
-    const value = normalizeSpace($(dt).next("dd").text());
-    if (label && value) {
-      mergeValue(map, label, value);
+    mergeValue(map, $(dt).text(), $(dt).next("dd").text());
+  });
+
+  $(".property_data").each((_, element) => {
+    const label = $(element).find(".property_data-title").first().text();
+    const value = $(element).find(".property_data-body").first().text();
+    mergeValue(map, label, value);
+  });
+
+  $(".property_view_detail").each((_, element) => {
+    const label = $(element).find(".property_view_detail-header-title").first().text();
+    const values = $(element)
+      .find(".property_view_detail-text")
+      .map((__, textElement) => cleanupValue($(textElement).text()))
+      .get()
+      .filter((text): text is string => Boolean(text));
+
+    if (label && values.length) {
+      mergeValue(map, label, uniqJoin(values));
     }
   });
 
@@ -157,7 +196,7 @@ const getMetaContent = ($: CheerioAPI, selectors: string[]) => {
 };
 
 const parseSuumoId = (value: string) => {
-  const match = value.match(/jnc_(\d+)/i) ?? value.match(/(\d{6,})/);
+  const match = value.match(/(?:jnc_|bc_)(\d+)/i) ?? value.match(/(\d{6,})/);
   return match?.[1] ?? null;
 };
 
@@ -184,7 +223,7 @@ const resolveTarget = (input: ScrapeListingInput): ResolvedTarget => {
 
   if (input.site === "suumo" && input.id) {
     const id = parseSuumoId(input.id) ?? input.id;
-    return { site: "suumo", id, url: `https://suumo.jp/chintai/jnc_${id}/` };
+    return { site: "suumo", id, url: `https://suumo.jp/chintai/bc_${id}/` };
   }
 
   if (input.site === "homes" && input.id) {
@@ -226,18 +265,26 @@ const extractAge = (value: string | null) => {
 };
 
 const extractSuumoAccess = ($: CheerioAPI, labelMap: Map<string, string>) => {
-  const access = getByLabels(labelMap, ["交通", "沿線・駅"]);
+  const access = getByLabels(labelMap, ["アクセス", "交通", "沿線・駅"]);
   if (access) {
     return access;
   }
 
-  const candidates: string[] = [];
-  $(".property_view_note-emphasis, .property_view_note-info, .property_view_detail-header li").each((_, element) => {
-    const lines = getTextLines($, element).filter((line) => /歩|バス|線|駅/.test(line));
-    candidates.push(...lines);
-  });
+  const candidates = $(".property_view_detail--train .property_view_detail-text")
+    .map((_, element) => cleanupValue($(element).text()))
+    .get()
+    .filter((line): line is string => Boolean(line));
 
   return candidates.length ? uniqJoin(candidates) : null;
+};
+
+const extractSuumoFeatures = ($: CheerioAPI) => {
+  const items = $("#bkdt-option .inline_list li")
+    .map((_, element) => cleanupValue($(element).text()))
+    .get()
+    .filter((line): line is string => Boolean(line));
+
+  return items.length ? uniqJoin(items) : null;
 };
 
 const extractHomesAccess = ($: CheerioAPI, labelMap: Map<string, string>) => {
@@ -255,6 +302,14 @@ const extractHomesAccess = ($: CheerioAPI, labelMap: Map<string, string>) => {
   });
 
   return candidates.length ? uniqJoin(candidates) : null;
+};
+
+const normalizeSlashSeparatedValue = (value: string | null) => {
+  if (!value) {
+    return null;
+  }
+  const parts = value.split("/").map((part) => cleanupValue(part)).filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join(" / ") : cleanupValue(value);
 };
 
 const splitPair = (value: string | null) => {
@@ -279,9 +334,9 @@ const parseSuumo = (html: string, target: ResolvedTarget) => {
   const labelMap = buildLabelMap($);
   const output: ListingFieldMap = { ...EMPTY_OUTPUT };
 
-  setIfEmpty(output, "物件名", getFirstText($, ["h1", ".section_h1-header-title", ".property_view_detail-header h1"]));
-  setIfEmpty(output, "物件名", getMetaContent($, ["meta[property='og:title']", "title"]));
-  setIfEmpty(output, "住所", getByLabels(labelMap, ["住所", "所在地"]));
+  setIfEmpty(output, "物件名", cleanupSuumoTitle(getFirstText($, ["h1", ".section_h1-header-title", ".property_view_detail-header h1"])));
+  setIfEmpty(output, "物件名", cleanupSuumoTitle(getMetaContent($, ["meta[property='og:title']", "title"])));
+  setIfEmpty(output, "住所", getByLabels(labelMap, ["所在地", "住所"]));
   setIfEmpty(output, "アクセス", extractSuumoAccess($, labelMap));
   setIfEmpty(output, "間取り", getByLabels(labelMap, ["間取り", "間取り詳細"]));
   setIfEmpty(output, "専有面積", getByLabels(labelMap, ["専有面積"]));
@@ -299,11 +354,17 @@ const parseSuumo = (html: string, target: ResolvedTarget) => {
   setIfEmpty(output, "築年月", getByLabels(labelMap, ["築年月"]));
   setIfEmpty(output, "取引態様", getByLabels(labelMap, ["取引態様"]));
   setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
+  setIfEmpty(output, "部屋の特徴・設備", extractSuumoFeatures($));
 
-  const shikikin = getByLabels(labelMap, ["敷金"]);
-  const reikin = getByLabels(labelMap, ["礼金"]);
-  if (shikikin || reikin) {
-    setIfEmpty(output, "敷金/礼金", `${shikikin ?? "-"} / ${reikin ?? "-"}`);
+  const shikikinReikin = getByLabels(labelMap, ["敷金/礼金"]);
+  if (shikikinReikin) {
+    setIfEmpty(output, "敷金/礼金", normalizeSlashSeparatedValue(shikikinReikin));
+  } else {
+    const shikikin = getByLabels(labelMap, ["敷金"]);
+    const reikin = getByLabels(labelMap, ["礼金"]);
+    if (shikikin || reikin) {
+      setIfEmpty(output, "敷金/礼金", `${shikikin ?? "-"} / ${reikin ?? "-"}`);
+    }
   }
 
   setIfEmpty(output, "保証金", getByLabels(labelMap, ["保証金"]));
@@ -316,7 +377,7 @@ const parseSuumo = (html: string, target: ResolvedTarget) => {
     }
   }
 
-  output["築年数"] = extractAge(output["築年数"]);
+  output["築年数"] = extractAge(output["築年数"] ?? output["築年月"]);
   output["取引様態"] = output["取引態様"];
 
   return {
@@ -351,10 +412,11 @@ const parseHomes = (html: string, target: ResolvedTarget) => {
   setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["その他費用", "初期費用", "ほか初期費用"]));
   setIfEmpty(output, "取引態様", getByLabels(labelMap, ["取引態様"]));
   setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
+  setIfEmpty(output, "部屋の特徴・設備", extractSuumoFeatures($));
 
   const shikikinReikin = getByLabels(labelMap, ["敷金/礼金"]);
   if (shikikinReikin) {
-    setIfEmpty(output, "敷金/礼金", shikikinReikin);
+    setIfEmpty(output, "敷金/礼金", normalizeSlashSeparatedValue(shikikinReikin));
   }
 
   const hoshokinShikibiki = getByLabels(labelMap, ["保証金/敷引・償却金", "保証金/敷引・償却"]);
