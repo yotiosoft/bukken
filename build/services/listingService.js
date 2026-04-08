@@ -9,7 +9,8 @@ const DEFAULT_HEADERS = {
 const EMPTY_OUTPUT = {
     "物件名": null,
     "住所": null,
-    "敷金/礼金": null,
+    "敷金": null,
+    "礼金": null,
     "保証金": null,
     "敷引・償却": null,
     "アクセス": null,
@@ -239,12 +240,15 @@ const extractHomesAccess = ($, labelMap) => {
     });
     return candidates.length ? uniqJoin(candidates) : null;
 };
-const normalizeSlashSeparatedValue = (value) => {
-    if (!value) {
-        return null;
+const assignDepositAndKeyMoney = (output, combinedValue, shikikinValue, reikinValue) => {
+    if (combinedValue) {
+        const [shikikin, reikin] = splitPair(combinedValue);
+        setIfEmpty(output, "敷金", shikikin);
+        setIfEmpty(output, "礼金", reikin);
+        return;
     }
-    const parts = value.split("/").map((part) => cleanupValue(part)).filter((part) => Boolean(part));
-    return parts.length ? parts.join(" / ") : cleanupValue(value);
+    setIfEmpty(output, "敷金", shikikinValue);
+    setIfEmpty(output, "礼金", reikinValue);
 };
 const splitPair = (value) => {
     if (!value) {
@@ -286,16 +290,9 @@ const parseSuumo = (html, target) => {
     setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
     setIfEmpty(output, "部屋の特徴・設備", extractSuumoFeatures($));
     const shikikinReikin = getByLabels(labelMap, ["敷金/礼金"]);
-    if (shikikinReikin) {
-        setIfEmpty(output, "敷金/礼金", normalizeSlashSeparatedValue(shikikinReikin));
-    }
-    else {
-        const shikikin = getByLabels(labelMap, ["敷金"]);
-        const reikin = getByLabels(labelMap, ["礼金"]);
-        if (shikikin || reikin) {
-            setIfEmpty(output, "敷金/礼金", `${shikikin ?? "-"} / ${reikin ?? "-"}`);
-        }
-    }
+    const shikikin = getByLabels(labelMap, ["敷金"]);
+    const reikin = getByLabels(labelMap, ["礼金"]);
+    assignDepositAndKeyMoney(output, shikikinReikin, shikikin, reikin);
     setIfEmpty(output, "保証金", getByLabels(labelMap, ["保証金"]));
     setIfEmpty(output, "敷引・償却", getByLabels(labelMap, ["敷引・償却", "敷引", "償却"]));
     if (!output["住所"]) {
@@ -338,9 +335,7 @@ const parseHomes = (html, target) => {
     setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
     setIfEmpty(output, "部屋の特徴・設備", extractSuumoFeatures($));
     const shikikinReikin = getByLabels(labelMap, ["敷金/礼金"]);
-    if (shikikinReikin) {
-        setIfEmpty(output, "敷金/礼金", normalizeSlashSeparatedValue(shikikinReikin));
-    }
+    assignDepositAndKeyMoney(output, shikikinReikin);
     const hoshokinShikibiki = getByLabels(labelMap, ["保証金/敷引・償却金", "保証金/敷引・償却"]);
     if (hoshokinShikibiki) {
         const [hoshokin, shikibiki] = splitPair(hoshokinShikibiki);
