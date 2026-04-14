@@ -360,7 +360,7 @@ const parseSuumo = (html: string, target: ResolvedTarget) => {
   setIfEmpty(output, "契約期間", getByLabels(labelMap, ["契約期間"]));
   setIfEmpty(output, "仲介手数料", getByLabels(labelMap, ["仲介手数料"]));
   setIfEmpty(output, "保証会社", getByLabels(labelMap, ["保証会社", "保証会社利用"]));
-  setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["ほか初期費用", "その他初期費用"]));
+  setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["ほか初期費用", "ほか諸費用", "その他初期費用", "その他諸費用"]));
   setIfEmpty(output, "築年月", getByLabels(labelMap, ["築年月"]));
   setIfEmpty(output, "取引態様", getByLabels(labelMap, ["取引態様"]));
   setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
@@ -413,7 +413,7 @@ const parseHomes = (html: string, target: ResolvedTarget) => {
   setIfEmpty(output, "契約期間", getByLabels(labelMap, ["契約期間"]));
   setIfEmpty(output, "仲介手数料", getByLabels(labelMap, ["仲介手数料"]));
   setIfEmpty(output, "保証会社", getByLabels(labelMap, ["保証会社", "保証会社利用料"]));
-  setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["その他費用", "初期費用", "ほか初期費用"]));
+  setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["その他費用", "諸費用", "初期費用", "ほか初期費用", "ほか諸費用", "その他諸費用"]));
   setIfEmpty(output, "取引態様", getByLabels(labelMap, ["取引態様"]));
   setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
   setIfEmpty(output, "部屋の特徴・設備", extractSuumoFeatures($));
