@@ -8,6 +8,7 @@ const DEFAULT_HEADERS = {
 };
 const EMPTY_OUTPUT = {
     "物件名": null,
+    "価格": null,
     "住所": null,
     "敷金": null,
     "礼金": null,
@@ -16,36 +17,76 @@ const EMPTY_OUTPUT = {
     "アクセス": null,
     "間取り": null,
     "専有面積": null,
+    "その他面積": null,
+    "バルコニー面積": null,
     "向き": null,
     "建物種別": null,
     "築年数": null,
+    "所在階": null,
     "階建": null,
+    "構造・階建て": null,
     "損保": null,
     "入居時期": null,
+    "引渡可能時期": null,
     "条件": null,
     "契約期間": null,
     "仲介手数料": null,
     "保証会社": null,
     "ほか初期費用": null,
+    "管理費": null,
+    "修繕積立金": null,
+    "修繕積立基金": null,
+    "諸費用": null,
+    "販売スケジュール": null,
+    "販売戸数": null,
+    "総戸数": null,
+    "敷地面積": null,
+    "敷地の権利形態": null,
+    "用途地域": null,
+    "駐車場": null,
     "築年月": null,
+    "施工": null,
     "取引態様": null,
     "取引様態": null,
     "備考": null,
+    "担当者": null,
+    "会社概要": null,
+    "問い合わせ先": null,
+    "情報提供日": null,
+    "次回更新予定日": null,
+    "取引条件有効期限": null,
     "部屋の特徴・設備": null,
 };
-const normalizeSpace = (value) => value?.replace(/\u00a0/g, " ").replace(/[ \t]+/g, " ").replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim() ?? "";
-const cleanLabel = (value) => normalizeSpace(value).replace(/[：:]/g, "").replace(/\s+/g, "");
+const normalizeSpace = (value) => value
+    ?.replace(/\u00a0/g, " ")
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim() ?? "";
+const cleanLabel = (value) => normalizeSpace(value).replace(/ヒント/g, "").replace(/[：:]/g, "").replace(/\s+/g, "");
 const uniqJoin = (values) => [...new Set(values.map((value) => normalizeSpace(value)).filter(Boolean))].join("\n");
+const dedupeTextLines = (value) => {
+    const lines = value
+        .split("\n")
+        .map((line) => normalizeSpace(line))
+        .filter(Boolean);
+    return lines.length > 1 ? [...new Set(lines)].join("\n") : normalizeSpace(value);
+};
 const cleanupValue = (value) => {
-    const normalized = normalizeSpace(value);
+    const normalized = normalizeSpace(value)
+        .replace(/\[\s*(?:乗り換え案内|周辺環境|支払シミュレーション)\s*\]/g, "")
+        .replace(/\[\s*\]/g, "")
+        .replace(/□\s*支払シミュレーション/g, "");
     if (!normalized) {
         return null;
     }
-    return normalized
+    const cleaned = dedupeTextLines(normalizeSpace(normalized)
         .replace(/地図を見る/g, "")
         .replace(/\s*\|\s*LIFULL HOME'S.*$/g, "")
         .replace(/^\s*[:：-]+/, "")
-        .trim();
+        .trim());
+    return cleaned || null;
 };
 const cleanupSuumoTitle = (value) => {
     const normalized = cleanupValue(value);
@@ -224,7 +265,32 @@ const extractSuumoFeatures = ($) => {
         .map((_, element) => cleanupValue($(element).text()))
         .get()
         .filter((line) => Boolean(line));
-    return items.length ? uniqJoin(items) : null;
+    if (items.length) {
+        return uniqJoin(items);
+    }
+    const pickupHeader = $("h2, h3")
+        .filter((_, element) => normalizeSpace($(element).text()).includes("特徴ピックアップ"))
+        .first();
+    const pickupText = cleanupValue(pickupHeader.parent().next().text());
+    const pickupItems = pickupText
+        ?.split(/\s*\/\s*|\n+/)
+        .map((line) => cleanupValue(line))
+        .filter((line) => Boolean(line)) ?? [];
+    return pickupItems.length ? uniqJoin(pickupItems) : null;
+};
+const inferSuumoPropertyType = ($, target) => {
+    const keywords = getMetaContent($, ["meta[name='keywords']", "meta[name='description']"]);
+    if (target.url.includes("/ms/chuko/") || keywords?.includes("中古マンション")) {
+        return "中古マンション";
+    }
+    return null;
+};
+const extractBalconyArea = (value) => {
+    if (!value) {
+        return null;
+    }
+    const match = value.match(/バルコニー面積[：:]?\s*([^\n]+)/);
+    return cleanupValue(match?.[1]);
 };
 const extractHomesAccess = ($, labelMap) => {
     const access = getByLabels(labelMap, ["交通", "アクセス"]);
@@ -268,26 +334,53 @@ const parseSuumo = (html, target) => {
     const $ = cheerio.load(html);
     const labelMap = buildLabelMap($);
     const output = { ...EMPTY_OUTPUT };
+    setIfEmpty(output, "物件名", getByLabels(labelMap, ["物件名"]));
     setIfEmpty(output, "物件名", cleanupSuumoTitle(getFirstText($, ["h1", ".section_h1-header-title", ".property_view_detail-header h1"])));
     setIfEmpty(output, "物件名", cleanupSuumoTitle(getMetaContent($, ["meta[property='og:title']", "title"])));
+    setIfEmpty(output, "価格", getByLabels(labelMap, ["価格"]));
     setIfEmpty(output, "住所", getByLabels(labelMap, ["所在地", "住所"]));
     setIfEmpty(output, "アクセス", extractSuumoAccess($, labelMap));
     setIfEmpty(output, "間取り", getByLabels(labelMap, ["間取り", "間取り詳細"]));
     setIfEmpty(output, "専有面積", getByLabels(labelMap, ["専有面積"]));
+    setIfEmpty(output, "その他面積", getByLabels(labelMap, ["その他面積"]));
+    setIfEmpty(output, "バルコニー面積", extractBalconyArea(output["その他面積"]));
     setIfEmpty(output, "向き", getByLabels(labelMap, ["向き"]));
+    setIfEmpty(output, "建物種別", inferSuumoPropertyType($, target));
     setIfEmpty(output, "建物種別", getByLabels(labelMap, ["建物種別", "種別", "建物構造", "構造"]));
     setIfEmpty(output, "築年数", getByLabels(labelMap, ["築年数", "築年", "築年月"]));
-    setIfEmpty(output, "階建", getByLabels(labelMap, ["階建", "所在階", "階数"]));
+    setIfEmpty(output, "所在階", getByLabels(labelMap, ["所在階"]));
+    setIfEmpty(output, "階建", getByLabels(labelMap, ["所在階/構造・階建", "階建", "所在階", "階数"]));
+    setIfEmpty(output, "構造・階建て", getByLabels(labelMap, ["構造・階建て", "構造・階建", "所在階/構造・階建"]));
     setIfEmpty(output, "損保", getByLabels(labelMap, ["損保", "保険"]));
     setIfEmpty(output, "入居時期", getByLabels(labelMap, ["入居", "入居時期"]));
+    setIfEmpty(output, "引渡可能時期", getByLabels(labelMap, ["引渡可能時期", "引渡し", "引渡"]));
+    setIfEmpty(output, "入居時期", output["引渡可能時期"]);
     setIfEmpty(output, "条件", getByLabels(labelMap, ["条件"]));
     setIfEmpty(output, "契約期間", getByLabels(labelMap, ["契約期間"]));
     setIfEmpty(output, "仲介手数料", getByLabels(labelMap, ["仲介手数料"]));
     setIfEmpty(output, "保証会社", getByLabels(labelMap, ["保証会社", "保証会社利用"]));
     setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["ほか初期費用", "ほか諸費用", "その他初期費用", "その他諸費用"]));
+    setIfEmpty(output, "管理費", getByLabels(labelMap, ["管理費"]));
+    setIfEmpty(output, "修繕積立金", getByLabels(labelMap, ["修繕積立金"]));
+    setIfEmpty(output, "修繕積立基金", getByLabels(labelMap, ["修繕積立基金"]));
+    setIfEmpty(output, "諸費用", getByLabels(labelMap, ["諸費用"]));
+    setIfEmpty(output, "販売スケジュール", getByLabels(labelMap, ["販売スケジュール"]));
+    setIfEmpty(output, "販売戸数", getByLabels(labelMap, ["販売戸数"]));
+    setIfEmpty(output, "総戸数", getByLabels(labelMap, ["総戸数"]));
+    setIfEmpty(output, "敷地面積", getByLabels(labelMap, ["敷地面積"]));
+    setIfEmpty(output, "敷地の権利形態", getByLabels(labelMap, ["敷地の権利形態"]));
+    setIfEmpty(output, "用途地域", getByLabels(labelMap, ["用途地域"]));
+    setIfEmpty(output, "駐車場", getByLabels(labelMap, ["駐車場"]));
     setIfEmpty(output, "築年月", getByLabels(labelMap, ["築年月"]));
+    setIfEmpty(output, "施工", getByLabels(labelMap, ["施工"]));
     setIfEmpty(output, "取引態様", getByLabels(labelMap, ["取引態様"]));
     setIfEmpty(output, "備考", getByLabels(labelMap, ["備考"]));
+    setIfEmpty(output, "担当者", getByLabels(labelMap, ["担当者", "担当者より"]));
+    setIfEmpty(output, "会社概要", getByLabels(labelMap, ["会社概要"]));
+    setIfEmpty(output, "問い合わせ先", getByLabels(labelMap, ["問い合わせ先", "お問い合せ先"]));
+    setIfEmpty(output, "情報提供日", getByLabels(labelMap, ["情報提供日"]));
+    setIfEmpty(output, "次回更新予定日", getByLabels(labelMap, ["次回更新予定日"]));
+    setIfEmpty(output, "取引条件有効期限", getByLabels(labelMap, ["取引条件有効期限"]));
     setIfEmpty(output, "部屋の特徴・設備", extractSuumoFeatures($));
     const shikikinReikin = getByLabels(labelMap, ["敷金/礼金"]);
     const shikikin = getByLabels(labelMap, ["敷金"]);
