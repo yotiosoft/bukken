@@ -71,6 +71,10 @@ const dedupeTextLines = (value) => {
         .split("\n")
         .map((line) => normalizeSpace(line))
         .filter(Boolean);
+    // Preserve duplicate values around a slash separator such as 敷金/礼金.
+    if (lines.includes("/")) {
+        return lines.join("\n");
+    }
     return lines.length > 1 ? [...new Set(lines)].join("\n") : normalizeSpace(value);
 };
 const cleanupValue = (value) => {
