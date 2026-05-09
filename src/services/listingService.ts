@@ -308,6 +308,9 @@ const getFirstText = ($: CheerioAPI, selectors: string[]) => {
   return null;
 };
 
+const extractSuumoRent = ($: CheerioAPI) =>
+  cleanupValue($(".property_view_main-emphasis").first().text());
+
 const extractAge = (value: string | null) => {
   if (!value) {
     return null;
@@ -430,6 +433,9 @@ const parseSuumo = (html: string, target: ResolvedTarget) => {
   setIfEmpty(output, "物件名", cleanupSuumoTitle(getFirstText($, ["h1", ".section_h1-header-title", ".property_view_detail-header h1"])));
   setIfEmpty(output, "物件名", cleanupSuumoTitle(getMetaContent($, ["meta[property='og:title']", "title"])));
   setIfEmpty(output, "価格", getByLabels(labelMap, ["価格"]));
+  setIfEmpty(output, "賃料", getByLabels(labelMap, ["賃料"]));
+  setIfEmpty(output, "賃料", extractSuumoRent($));
+  setIfEmpty(output, "価格", output["賃料"]);
   setIfEmpty(output, "住所", getByLabels(labelMap, ["所在地", "住所"]));
   setIfEmpty(output, "アクセス", extractSuumoAccess($, labelMap));
   setIfEmpty(output, "間取り", getByLabels(labelMap, ["間取り", "間取り詳細"]));
@@ -452,7 +458,8 @@ const parseSuumo = (html: string, target: ResolvedTarget) => {
   setIfEmpty(output, "仲介手数料", getByLabels(labelMap, ["仲介手数料"]));
   setIfEmpty(output, "保証会社", getByLabels(labelMap, ["保証会社", "保証会社利用"]));
   setIfEmpty(output, "ほか初期費用", getByLabels(labelMap, ["ほか初期費用", "ほか諸費用", "その他初期費用", "その他諸費用"]));
-  setIfEmpty(output, "管理費", getByLabels(labelMap, ["管理費"]));
+  setIfEmpty(output, "管理費", getByLabels(labelMap, ["管理費・共益費", "管理費"]));
+  setIfEmpty(output, "共益費", output["管理費"]);
   setIfEmpty(output, "修繕積立金", getByLabels(labelMap, ["修繕積立金"]));
   setIfEmpty(output, "修繕積立基金", getByLabels(labelMap, ["修繕積立基金"]));
   setIfEmpty(output, "諸費用", getByLabels(labelMap, ["諸費用"]));
@@ -507,6 +514,8 @@ const parseHomes = (html: string, target: ResolvedTarget) => {
   const output: ListingFieldMap = { ...EMPTY_OUTPUT };
 
   setIfEmpty(output, "物件名", getFirstText($, ["h1", "[class*='PropertyName']", "[class*='Title'] h1"]));
+  setIfEmpty(output, "賃料", getByLabels(labelMap, ["賃料", "価格"]));
+  setIfEmpty(output, "価格", output["賃料"]);
   setIfEmpty(output, "物件名", getMetaContent($, ["meta[property='og:title']", "meta[name='twitter:title']", "title"]));
   setIfEmpty(output, "住所", getByLabels(labelMap, ["所在地", "住所"]));
   setIfEmpty(output, "アクセス", extractHomesAccess($, labelMap));
